@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { BASE_URL } from "../api";
 
 function BookingHistory() {
   const [bookings, setBookings] = useState([]);
@@ -7,7 +8,7 @@ function BookingHistory() {
   useEffect(() => {
     const token = localStorage.getItem("token");
 
-    axios.get("http://localhost:8081/api/bookings", {
+    axios.get(`${BASE_URL}/api/bookings`, {
       headers: {
         Authorization: `Bearer ${token}`
       }

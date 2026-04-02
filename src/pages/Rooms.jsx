@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { BASE_URL } from "../api";
 
 const images = [
   "https://source.unsplash.com/400x250/?hotel",
@@ -13,7 +14,7 @@ function Rooms() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    axios.get("http://localhost:8081/rooms")
+    axios.get(`${BASE_URL}/rooms`)
       .then(res => {
         if (res.data.length === 0) {
           const dummy = Array.from({ length: 20 }, (_, i) => ({
