@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Slider, Card, Tag, Button, Rate, Input, Checkbox } from "antd";
 import { Link } from "react-router-dom";
 import { EnvironmentOutlined, FilterOutlined, SearchOutlined } from "@ant-design/icons";
+import debounce from "lodash.debounce";
 import hotels from "../data/hotels";
 
 const amenityOptions = ["Free WiFi", "Swimming Pool", "Gym", "Spa", "Free Parking"];
@@ -11,22 +12,41 @@ export default function Home() {
   const [filterType, setFilterType] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAmenities, setSelectedAmenities] = useState([]);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
 
-  const filteredHotels = hotels.filter((h) => {
-    const term = searchQuery.toLowerCase();
-    const searchMatch = h.name.toLowerCase().includes(term) || h.location.toLowerCase().includes(term);
+  // Debounced search to prevent excessive filtering
+  const debouncedSetSearch = useMemo(
+    () => debounce((value) => setDebouncedSearchQuery(value), 200),
+    []
+  );
+
+  // Update debounced search when searchQuery changes
+  const handleSearchChange = useCallback((e) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+    debouncedSetSearch(value);
+  }, [debouncedSetSearch]);
+
+  // Memoized filtered hotels to prevent recalculation on every render
+  const filteredHotels = useMemo(() => {
+    const term = debouncedSearchQuery.toLowerCase();
+    const searchMatch = (hotel) => 
+      hotel.name.toLowerCase().includes(term) || 
+      hotel.location.toLowerCase().includes(term);
     
     // Check if hotel has ALL selected amenities
-    const hasAmenities = selectedAmenities.length === 0 || selectedAmenities.every(a => h.amenities && h.amenities.includes(a));
+    const hasAmenities = (hotel) => 
+      selectedAmenities.length === 0 || 
+      selectedAmenities.every(a => hotel.amenities && hotel.amenities.includes(a));
 
-    return (
-      searchMatch &&
-      hasAmenities &&
-      h.price >= price[0] &&
-      h.price <= price[1] &&
-      (filterType === "All" || h.type === filterType)
-    );
-  });
+    return hotels.filter((hotel) => (
+      searchMatch(hotel) &&
+      hasAmenities(hotel) &&
+      hotel.price >= price[0] &&
+      hotel.price <= price[1] &&
+      (filterType === "All" || hotel.type === filterType)
+    ));
+  }, [debouncedSearchQuery, selectedAmenities, price, filterType]);
 
   return (
     <div style={{ background: "var(--bg-color)", minHeight: "100vh" }}>
@@ -52,7 +72,7 @@ export default function Home() {
              placeholder="Search by hotel name or location in Hyderabad (e.g., Jubilee Hills)"
              prefix={<SearchOutlined style={{ color: "var(--primary)", fontSize: 20, marginRight: 10 }} />}
              value={searchQuery}
-             onChange={e => setSearchQuery(e.target.value)}
+             onChange={handleSearchChange}
              style={{ 
                height: 60, 
                fontSize: 18, 

@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Form, Input, Button, DatePicker, Select, Card, Divider, Space, message, Row, Col, Typography } from "antd";
 import { MinusCircleOutlined, PlusOutlined, CalendarOutlined, SolutionOutlined, CreditCardOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
+import debounce from "lodash.debounce";
 import hotels from "../data/hotels";
 
 const { RangePicker } = DatePicker;
@@ -18,34 +19,37 @@ export default function BookRoom() {
   const [days, setDays] = useState(1);
   const [guestCount, setGuestCount] = useState(1);
 
+  // Memoize hotel lookup to avoid recalculating
+  const hotelData = useMemo(() => {
+    return hotels.find(h => h.id === parseInt(id));
+  }, [id]);
+
   useEffect(() => {
-    const found = hotels.find(h => h.id === parseInt(id));
-    if (found) {
-      setHotel(found);
-      setTotalPrice(found.price);
+    if (hotelData) {
+      setHotel(hotelData);
+      setTotalPrice(hotelData.price);
     } else {
       message.error("Hotel not found!");
       navigate("/");
     }
-  }, [id, navigate]);
+  }, [hotelData, navigate]);
 
-  const onValuesChange = (changedValues, allValues) => {
-    if (!hotel) return;
+  // Memoized calculation function to avoid recreating on every render
+  const calculatePrice = useCallback((dates, guests, basePrice) => {
+    if (!basePrice) return basePrice;
 
     // Calculate Days
     let calculatedDays = 1;
-    if (allValues.dates && allValues.dates[0] && allValues.dates[1]) {
-      calculatedDays = allValues.dates[1].diff(allValues.dates[0], 'days');
+    if (dates && dates[0] && dates[1]) {
+      calculatedDays = dates[1].diff(dates[0], 'days');
       if (calculatedDays === 0) calculatedDays = 1;
-      setDays(calculatedDays);
     }
 
     // Calculate Guests (Base price covers 1 adult. Extra adult = +500, Child = +250 per day)
-    const guests = allValues.guests || [];
-    setGuestCount(guests.length);
+    const guestList = guests || [];
     
     let extraCostPerDay = 0;
-    guests.forEach(guest => {
+    guestList.forEach(guest => {
       // First guest is strictly included in base price
       if (guest && guest.type === "Child") {
         extraCostPerDay += 250;
@@ -55,16 +59,46 @@ export default function BookRoom() {
     });
     
     // Subtract one adult for the primary booker since it's included in base hotel price
-    if (guests.length > 0 && guests[0]?.type === "Adult") {
+    if (guestList.length > 0 && guestList[0]?.type === "Adult") {
        extraCostPerDay -= 500;
        if(extraCostPerDay < 0) extraCostPerDay = 0;
     }
 
-    const calculatedTotal = (hotel.price + extraCostPerDay) * calculatedDays;
-    setTotalPrice(calculatedTotal);
-  };
+    return (basePrice + extraCostPerDay) * calculatedDays;
+  }, []);
 
-  const onFinish = (values) => {
+  // Debounced values change handler to prevent excessive re-renders
+  const debouncedOnValuesChange = useMemo(
+    () => debounce((changedValues, allValues) => {
+      if (!hotel) return;
+
+      // Calculate Days
+      let calculatedDays = 1;
+      if (allValues.dates && allValues.dates[0] && allValues.dates[1]) {
+        calculatedDays = allValues.dates[1].diff(allValues.dates[0], 'days');
+        if (calculatedDays === 0) calculatedDays = 1;
+        setDays(calculatedDays);
+      }
+
+      // Calculate Guests
+      const guests = allValues.guests || [];
+      setGuestCount(guests.length);
+      
+      // Calculate total price
+      const newTotal = calculatePrice(allValues.dates, guests, hotel.price);
+      setTotalPrice(newTotal);
+    }, 150), // 150ms debounce
+    [hotel, calculatePrice]
+  );
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedOnValuesChange.cancel();
+    };
+  }, [debouncedOnValuesChange]);
+
+  const onFinish = useCallback((values) => {
     if (!values.dates || values.dates.length !== 2) {
       return message.error("Please select Check-in and Check-out dates.");
     }
@@ -86,7 +120,7 @@ export default function BookRoom() {
     message.loading("Processing to secure payment gateway...", 1.5).then(() => {
       navigate("/payment");
     });
-  };
+  }, [hotel, totalPrice, navigate]);
 
   if (!hotel) return <div style={{ padding: "50px", textAlign: "center" }}>Loading Hotel Data...</div>;
 
@@ -102,7 +136,7 @@ export default function BookRoom() {
               form={form} 
               layout="vertical" 
               onFinish={onFinish}
-              onValuesChange={onValuesChange}
+              onValuesChange={debouncedOnValuesChange}
               initialValues={{ guests: [{ name: "", age: "", type: "Adult" }] }}
             >
               
